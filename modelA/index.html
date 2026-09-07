@@ -16,12 +16,16 @@
 <script type="module">
 import * as THREE from 'three';
 
-const MM = 0.1;
-const PITCH = 5.08 * MM;
-const BUTTON_D = 3.5 * MM;
-const BUTTON_H = 5.0 * MM;
-const LED_D = 3.0 * MM;
-const LED_OFFSET = 5.08 * MM;
+// Geometry is specified in mils. 1 mil = 0.001 inch = 0.0254 mm.
+const UNIT_PER_MIL = 0.00254;
+const mil = n => n * UNIT_PER_MIL;
+
+const COUNT = 12;
+const BUTTON_PITCH = 300;      // mil, center-to-center
+const BUTTON_D = 138;          // ~3.5 mm
+const BUTTON_H = 197;          // ~5.0 mm
+const LED_D = 118;             // ~3.0 mm
+const LED_Y_OFFSET = 200;      // button center -> LED center, mil
 
 const renderer = new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
@@ -39,11 +43,16 @@ camera.position.set(0,10,0);
 camera.up.set(0,0,-1);
 camera.lookAt(0,0,0);
 
+const rowWidth = mil((COUNT - 1) * BUTTON_PITCH + BUTTON_D);
+const marginX = mil(220);
+const panelWidth = rowWidth + marginX * 2;
+const panelDepth = mil(900);
+
 function updateCamera(){
-  const spanX = 12 * PITCH + 1.6;
   const aspect = innerWidth / innerHeight;
-  const halfW = spanX * 0.5;
-  const halfH = halfW / aspect;
+  const halfW = panelWidth * 0.53;
+  const minHalfH = panelDepth * 0.58;
+  const halfH = Math.max(halfW / aspect, minHalfH);
   camera.left = -halfW;
   camera.right = halfW;
   camera.top = halfH;
@@ -52,37 +61,40 @@ function updateCamera(){
 }
 updateCamera();
 
-scene.add(new THREE.HemisphereLight(0xffffff,0x222222,1.5));
-const key = new THREE.DirectionalLight(0xffffff,2.8);
+scene.add(new THREE.HemisphereLight(0xffffff,0x222222,1.45));
+const key = new THREE.DirectionalLight(0xffffff,2.4);
 key.position.set(-3,8,4);
 key.castShadow = true;
 scene.add(key);
 
 const plane = new THREE.Mesh(
-  new THREE.PlaneGeometry(12*PITCH+1.4,2.2),
-  new THREE.MeshStandardMaterial({color:0x292929,roughness:0.92,metalness:0.02})
+  new THREE.PlaneGeometry(panelWidth,panelDepth),
+  new THREE.MeshStandardMaterial({color:0x343434,roughness:0.9,metalness:0.01})
 );
 plane.rotation.x = -Math.PI/2;
 plane.receiveShadow = true;
 scene.add(plane);
 
-const buttonMat = new THREE.MeshStandardMaterial({color:0x303030,roughness:0.78,metalness:0.05});
-const ledOff = new THREE.Color(0x5a1111);
+const buttonBaseColor = 0x353535;
+const buttonPressedColor = 0x292929;
+const ledOff = new THREE.Color(0x7d1010);
 const ledOn = new THREE.Color(0xff2020);
 
 const buttons=[];
 const leds=[];
 const interactive=[];
-const startX = -((12-1)*PITCH)/2;
+const startX = -mil((COUNT - 1) * BUTTON_PITCH) / 2;
+const buttonZ = mil(100);
+const ledZ = buttonZ - mil(LED_Y_OFFSET);
 
-for(let i=0;i<12;i++){
-  const x = startX + i*PITCH;
+for(let i=0;i<COUNT;i++){
+  const x = startX + mil(i * BUTTON_PITCH);
 
   const button = new THREE.Mesh(
-    new THREE.CylinderGeometry(BUTTON_D/2,BUTTON_D/2,BUTTON_H,48),
-    buttonMat.clone()
+    new THREE.CylinderGeometry(mil(BUTTON_D)/2,mil(BUTTON_D)/2,mil(BUTTON_H),48),
+    new THREE.MeshStandardMaterial({color:buttonBaseColor,roughness:0.78,metalness:0.04})
   );
-  button.position.set(x,BUTTON_H/2,0.28);
+  button.position.set(x,mil(BUTTON_H)/2,buttonZ);
   button.castShadow = true;
   button.userData.index = i;
   button.userData.on = false;
@@ -90,18 +102,23 @@ for(let i=0;i<12;i++){
   buttons.push(button);
   interactive.push(button);
 
-  const ledMat = new THREE.MeshStandardMaterial({
+  const ledMat = new THREE.MeshPhysicalMaterial({
     color:ledOff,
     emissive:ledOff,
-    emissiveIntensity:0.15,
-    roughness:0.35
+    emissiveIntensity:0.3,
+    roughness:0.16,
+    metalness:0.0,
+    clearcoat:1.0,
+    clearcoatRoughness:0.08
   });
+
+  // Upper hemisphere: equator sits on the panel and the dome rises upward.
   const led = new THREE.Mesh(
-    new THREE.SphereGeometry(LED_D/2,32,20,0,Math.PI*2,0,Math.PI/2),
+    new THREE.SphereGeometry(mil(LED_D)/2,40,24,0,Math.PI*2,0,Math.PI/2),
     ledMat
   );
-  led.position.set(x,0.02,0.28-LED_OFFSET);
-  led.rotation.x = Math.PI;
+  led.position.set(x,0,ledZ);
+  led.castShadow = true;
   scene.add(led);
   leds.push(led);
 }
@@ -120,13 +137,15 @@ function pick(e){
 renderer.domElement.addEventListener('pointerdown',e=>{
   const button = pick(e);
   if(!button) return;
+
   const i = button.userData.index;
   button.userData.on = !button.userData.on;
-  button.position.y = button.userData.on ? BUTTON_H/2 - 0.09 : BUTTON_H/2;
-  button.material.color.setHex(button.userData.on ? 0x252525 : 0x303030);
+  button.position.y = button.userData.on ? mil(BUTTON_H)/2 - mil(35) : mil(BUTTON_H)/2;
+  button.material.color.setHex(button.userData.on ? buttonPressedColor : buttonBaseColor);
+
   leds[i].material.color.copy(button.userData.on ? ledOn : ledOff);
   leds[i].material.emissive.copy(button.userData.on ? ledOn : ledOff);
-  leds[i].material.emissiveIntensity = button.userData.on ? 4.0 : 0.15;
+  leds[i].material.emissiveIntensity = button.userData.on ? 4.5 : 0.3;
 });
 
 function animate(){
